@@ -2,6 +2,8 @@
 
 A multimodal food intelligence app. Upload a photo of a dish and the AI identifies it, lists the visible ingredients, estimates calories, and tells you if it is vegetarian or non-vegetarian.
 
+**Live demo:** https://foodverse-ai-nithin.streamlit.app/
+
 ## Features
 
 - Upload a food photo (JPG or PNG)
@@ -76,7 +78,7 @@ FoodVerse-AI/
 - [x] Photo analysis with Gemini
 - [x] Streamlit interface
 - [x] Improved layout with result cards
-- [ ] Chat for follow-up questions ("Is this healthy?")
+- [x] Chat for follow-up questions ("Is this healthy?")
 - [ ] Accurate nutrition lookup with the USDA API
 - [ ] Barcode scanning with Open Food Facts
 - [ ] Deployment on Streamlit Community Cloud
