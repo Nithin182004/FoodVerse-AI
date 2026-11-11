@@ -75,7 +75,7 @@ FoodVerse-AI/
 
 - [x] Photo analysis with Gemini
 - [x] Streamlit interface
-- [ ] Improved layout with result cards
+- [x] Improved layout with result cards
 - [ ] Chat for follow-up questions ("Is this healthy?")
 - [ ] Accurate nutrition lookup with the USDA API
 - [ ] Barcode scanning with Open Food Facts
