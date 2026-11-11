@@ -46,12 +46,17 @@ with st.sidebar:
     st.header("About")
     st.write(
         "FoodVerse AI looks at a food photo and tells you the dish, "
-        "ingredients, estimated nutrition and diet type."
+        "ingredients, estimated nutrition and diet type. You can then "
+        "chat with it about the dish."
     )
     st.caption("Calories and nutrients are AI estimates, not medical advice.")
     if "model_used" in st.session_state:
         st.divider()
         st.caption(f"Model used: {st.session_state['model_used']}")
+    if st.session_state.get("chat"):
+        if st.button("Clear chat"):
+            st.session_state["chat"] = []
+            st.rerun()
 
 # ---------- Header ----------
 st.title("🍽️ FoodVerse AI")
@@ -88,6 +93,30 @@ def analyze(image):
     return None, None
 
 
+def chat_reply(image, result, history, question):
+    """Answer a follow-up question about the dish. Returns text or None."""
+    instructions = (
+        "You are FoodVerse AI, a friendly food and nutrition assistant. "
+        "The user uploaded the photo of a dish. Here is the earlier analysis: "
+        f"{json.dumps(result)}\n"
+        "Answer the user's follow-up questions about this dish clearly and briefly. "
+        "For health questions, give general information and remind them that "
+        "you are not a doctor or dietitian when it matters."
+    )
+    convo = "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in history)
+    prompt = f"{instructions}\n\nConversation so far:\n{convo}\n\nUser: {question}\nAssistant:"
+
+    for model in MODELS:
+        try:
+            response = client.models.generate_content(
+                model=model, contents=[image, prompt]
+            )
+            return response.text
+        except Exception:
+            continue
+    return None
+
+
 uploaded = st.file_uploader("Choose a food photo", type=["jpg", "jpeg", "png"])
 
 if uploaded:
@@ -105,6 +134,7 @@ if uploaded:
         if result:
             st.session_state["result"] = result
             st.session_state["model_used"] = model_used
+            st.session_state["chat"] = []  # new dish, start a fresh chat
         else:
             st.session_state.pop("result", None)
             st.error("All models are busy right now. Try again in a minute.")
@@ -135,3 +165,34 @@ if uploaded:
             st.info(f"💡 {result.get('health_tip', '')}")
         else:
             st.write("Click **Analyze food** to see the results here.")
+
+    # ---------- Chat ----------
+    result = st.session_state.get("result")
+    if result:
+        st.divider()
+        st.subheader("💬 Ask about this dish")
+        st.caption('Try: "Is this healthy?", "Give me the recipe", "Make it vegetarian"')
+
+        if "chat" not in st.session_state:
+            st.session_state["chat"] = []
+
+        for msg in st.session_state["chat"]:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+
+        question = st.chat_input("Ask a question about this dish...")
+        if question:
+            with st.chat_message("user"):
+                st.write(question)
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    answer = chat_reply(
+                        image, result, st.session_state["chat"], question
+                    )
+                if answer:
+                    st.write(answer)
+                else:
+                    answer = "Sorry, all models are busy right now. Please try again."
+                    st.error(answer)
+            st.session_state["chat"].append({"role": "user", "content": question})
+            st.session_state["chat"].append({"role": "assistant", "content": answer})
