@@ -1,4 +1,5 @@
 import os
+import json
 import streamlit as st
 from dotenv import load_dotenv
 from google import genai
@@ -6,7 +7,14 @@ from google.genai import types
 from PIL import Image
 
 load_dotenv()
+
+# Key from .env (your laptop) or Streamlit secrets (when deployed online)
 api_key = os.getenv("GEMINI_API_KEY")
+if not api_key:
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        api_key = None
 
 MODELS = [
     "gemini-3.1-flash-lite",
@@ -14,16 +22,40 @@ MODELS = [
     "gemini-3.5-flash",
 ]
 
-PROMPT = """You are a food expert. Look at this image and tell me:
-1. The name of the dish
-2. The main ingredients you can see
-3. An estimated calorie count per serving
-4. Whether it is vegetarian or non-vegetarian
-Keep the answer short and clear."""
+PROMPT = """You are a food expert. Look at this image and reply with ONLY a JSON object
+with exactly these keys:
+{
+  "dish_name": "name of the dish",
+  "cuisine": "cuisine or region, e.g. Hyderabadi",
+  "description": "one short sentence about the dish",
+  "ingredients": ["main visible ingredients"],
+  "calories": 0,
+  "protein_g": 0,
+  "carbs_g": 0,
+  "fat_g": 0,
+  "diet": "Vegetarian or Non-vegetarian",
+  "health_tip": "one short, practical health tip"
+}
+Numbers are estimates for one typical serving. If the image is not food,
+set dish_name to "Not a food image" and use 0 for the numbers."""
 
-st.set_page_config(page_title="FoodVerse AI", page_icon="🍽️")
+st.set_page_config(page_title="FoodVerse AI", page_icon="🍽️", layout="wide")
+
+# ---------- Sidebar ----------
+with st.sidebar:
+    st.header("About")
+    st.write(
+        "FoodVerse AI looks at a food photo and tells you the dish, "
+        "ingredients, estimated nutrition and diet type."
+    )
+    st.caption("Calories and nutrients are AI estimates, not medical advice.")
+    if "model_used" in st.session_state:
+        st.divider()
+        st.caption(f"Model used: {st.session_state['model_used']}")
+
+# ---------- Header ----------
 st.title("🍽️ FoodVerse AI")
-st.write("Upload a photo of food and I'll tell you what it is.")
+st.write("Upload a photo of food and get an instant breakdown.")
 
 if not api_key:
     st.error("API key not found. Check your .env file.")
@@ -37,27 +69,69 @@ client = genai.Client(
     ),
 )
 
+
+def analyze(image):
+    """Try each model in order. Returns (result_dict, model_name) or (None, None)."""
+    for model in MODELS:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=[image, PROMPT],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json"
+                ),
+            )
+            text = response.text.strip().removeprefix("```json").removesuffix("```").strip()
+            return json.loads(text), model
+        except Exception:
+            continue
+    return None, None
+
+
 uploaded = st.file_uploader("Choose a food photo", type=["jpg", "jpeg", "png"])
 
 if uploaded:
-    image = Image.open(uploaded)
-    st.image(image, caption="Your photo", use_container_width=True)
+    image = Image.open(uploaded).convert("RGB")
 
-    if st.button("Analyze food"):
+    left, right = st.columns([1, 1.3], gap="large")
+
+    with left:
+        st.image(image, caption="Your photo", width="stretch")
+        analyze_clicked = st.button("Analyze food", type="primary")
+
+    if analyze_clicked:
         with st.spinner("Looking at your food..."):
-            answer = None
-            for model in MODELS:
-                try:
-                    response = client.models.generate_content(
-                        model=model, contents=[image, PROMPT]
-                    )
-                    answer = response.text
-                    break
-                except Exception:
-                    continue
-
-        if answer:
-            st.subheader("Result")
-            st.write(answer)
+            result, model_used = analyze(image)
+        if result:
+            st.session_state["result"] = result
+            st.session_state["model_used"] = model_used
         else:
+            st.session_state.pop("result", None)
             st.error("All models are busy right now. Try again in a minute.")
+
+    with right:
+        result = st.session_state.get("result")
+        if result:
+            st.subheader(result.get("dish_name", "Unknown dish"))
+            st.caption(result.get("cuisine", ""))
+            st.write(result.get("description", ""))
+
+            diet = result.get("diet", "")
+            if diet.lower().startswith("veg"):
+                st.success("🟢 Vegetarian")
+            else:
+                st.error("🔴 Non-vegetarian")
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Calories", f"{result.get('calories', 0)} kcal")
+            c2.metric("Protein", f"{result.get('protein_g', 0)} g")
+            c3.metric("Carbs", f"{result.get('carbs_g', 0)} g")
+            c4.metric("Fat", f"{result.get('fat_g', 0)} g")
+
+            st.markdown("**Main ingredients**")
+            ingredients = result.get("ingredients", [])
+            st.markdown(" ".join(f"`{i}`" for i in ingredients))
+
+            st.info(f"💡 {result.get('health_tip', '')}")
+        else:
+            st.write("Click **Analyze food** to see the results here.")
